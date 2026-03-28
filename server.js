@@ -83,6 +83,9 @@ async function fetchBybit(side, currency = 'USDT') {
 
     const items = res.data?.result?.items || [];
     const filtered = items.filter(item => {
+      const price = parseFloat(item.price || 0);
+      const minNGN = price * 100;
+      const maxNGN = price * 1000;
       const payments = item.payments || [];
       const hasBankTransfer = payments.some(p =>
         p.toLowerCase().includes('bank') || p === '75' || p === '14'
@@ -90,15 +93,15 @@ async function fetchBybit(side, currency = 'USDT') {
       const completionRate = parseFloat(item.recentExecuteRate || item.completionRate || 0);
       const orderCount = parseInt(item.recentOrderNum || item.orderNum || 0);
       const isOnline = item.isOnline === true || item.isOnline === 1;
-      const minAmount = parseFloat(item.minAmount || 0);
-      const isVerified = item.authStatus === true || item.nickName;
-
+      const adMinAmount = parseFloat(item.minAmount || 0);
+      const adMaxAmount = parseFloat(item.maxAmount || 999999999);
+      const rangeOverlaps = adMinAmount <= maxNGN && adMaxAmount >= minNGN;
       return (
         hasBankTransfer &&
         completionRate >= 95 &&
         orderCount >= 100 &&
         isOnline &&
-        minAmount >= 50000
+        rangeOverlaps
       );
     });
 
@@ -117,50 +120,66 @@ async function fetchGate(tradeType, currency = 'USDT') {
   const cached = getCached(cacheKey);
   if (cached) return cached;
 
-  try {
-    const res = await axios.get(
-      'https://www.gate.io/api/dex/c2c/v1/ads/list',
-      {
-        params: {
-          currency_pair: `${currency}_NGN`,
-          trade_type: tradeType, // "buy" or "sell"
-          page: 1,
-          limit: 20
-        },
-        headers: {
-          'User-Agent': 'Mozilla/5.0',
-          'Accept': 'application/json'
-        },
-        timeout: 10000
+  // Try multiple Gate.io P2P endpoints
+  const endpoints = [
+    {
+      method: 'GET',
+      url: 'https://www.gate.io/apiw/v2/c2c/adv/list',
+      params: { coin: currency, fiat: 'NGN', trade_type: tradeType === 'buy' ? 1 : 0, page: 1, page_size: 20 }
+    },
+    {
+      method: 'POST',
+      url: 'https://www.gate.io/api/c2c/v1/order/list',
+      data: { currency, fiat_currency: 'NGN', type: tradeType, page: 1, limit: 20 }
+    },
+    {
+      method: 'GET',
+      url: `https://c2c.gate.io/api/v1/adv/list?currency=${currency}&fiat=NGN&tradeType=${tradeType}&page=1&pageSize=20`,
+      params: {}
+    }
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = ep.method === 'POST'
+        ? await axios.post(ep.url, ep.data, { headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' }, timeout: 10000 })
+        : await axios.get(ep.url, { params: ep.params, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }, timeout: 10000 });
+
+      const items = res.data?.data?.list || res.data?.data?.records || res.data?.list || res.data?.result?.list || [];
+      if (!items.length) continue;
+
+      const filtered = items.filter(item => {
+        const price = parseFloat(item.price || item.unit_price || item.trade_price || 0);
+        const minNGN = price * 100;
+        const maxNGN = price * 1000;
+        const methods = item.payment_methods || item.payments || item.pay_methods || [];
+        const hasBankTransfer = methods.some(p =>
+          (typeof p === 'string' ? p : (p.name || p.pay_name || '')).toLowerCase().includes('bank')
+        ) || methods.length === 0; // fallback: accept if no payment info
+        const completionRate = parseFloat(item.completion_rate || item.completionRate || item.finish_rate || 100);
+        const orderCount = parseInt(item.order_count || item.orderCount || item.total_order || 0);
+        const isOnline = item.online === true || item.is_online === true || item.online === 1 || item.status === 1 || true;
+        const adMinAmount = parseFloat(item.min_amount || item.minAmount || item.min_quota || 0);
+        const adMaxAmount = parseFloat(item.max_amount || item.maxAmount || item.max_quota || 999999999);
+        const rangeOverlaps = adMinAmount <= maxNGN && adMaxAmount >= minNGN;
+        return completionRate >= 90 && orderCount >= 50 && rangeOverlaps;
+      });
+
+      if (filtered.length > 0) {
+        const prices = filtered.map(i => parseFloat(i.price || i.unit_price || i.trade_price)).filter(p => p > 0);
+        if (prices.length) {
+          console.log(`Gate endpoint worked: ${ep.url} -> ${prices.length} prices`);
+          setCache(cacheKey, prices);
+          return prices;
+        }
       }
-    );
-
-    const items = res.data?.data?.list || res.data?.list || [];
-    const filtered = items.filter(item => {
-      const hasBankTransfer = (item.payment_methods || []).some(p =>
-        (p.name || p).toLowerCase().includes('bank')
-      );
-      const completionRate = parseFloat(item.completion_rate || item.completionRate || 0);
-      const orderCount = parseInt(item.order_count || item.orderCount || 0);
-      const isOnline = item.online === true || item.is_online === true || item.online === 1;
-      const minAmount = parseFloat(item.min_amount || item.minAmount || 0);
-
-      return (
-        hasBankTransfer &&
-        completionRate >= 95 &&
-        orderCount >= 100 &&
-        isOnline &&
-        minAmount >= 50000
-      );
-    });
-
-    const prices = filtered.map(i => parseFloat(i.price || i.unit_price)).filter(p => p > 0);
-    setCache(cacheKey, prices);
-    return prices;
-  } catch (err) {
-    console.error('Gate fetch error:', err.message);
-    return [];
+    } catch (err) {
+      console.error(`Gate endpoint failed (${ep.url}): ${err.message}`);
+    }
   }
+
+  console.error('All Gate endpoints failed');
+  return [];
 }
 
 // ─── Arbitrage Calculator ─────────────────────────────────────────────────────
