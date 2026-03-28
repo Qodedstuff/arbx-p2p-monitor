@@ -10,7 +10,11 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 // ─── Database Setup ───────────────────────────────────────────────────────────
 const db = new Database(path.join(__dirname, 'arb_data.db'));
