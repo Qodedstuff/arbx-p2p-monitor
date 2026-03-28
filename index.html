@@ -1,0 +1,1425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARBX · P2P Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080c0f;
+    --bg2: #0d1318;
+    --bg3: #111920;
+    --border: #1e2d38;
+    --border2: #243545;
+    --green: #00e5a0;
+    --green-dim: #00e5a020;
+    --green-mid: #00e5a060;
+    --red: #ff4757;
+    --red-dim: #ff475720;
+    --yellow: #ffd32a;
+    --yellow-dim: #ffd32a20;
+    --blue: #1e90ff;
+    --blue-dim: #1e90ff15;
+    --text: #c8dde8;
+    --text-dim: #5a7a8a;
+    --text-bright: #eaf4fa;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Syne', sans-serif;
+    --glow-green: 0 0 20px #00e5a040;
+    --glow-red: 0 0 20px #ff475740;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .logo-mark {
+    width: 36px;
+    height: 36px;
+    background: var(--green);
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: pulse-logo 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse-logo {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  .logo-text {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: 0.08em;
+    color: var(--text-bright);
+  }
+
+  .logo-text span { color: var(--green); }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  /* Currency Toggle */
+  .currency-toggle {
+    display: flex;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .currency-btn {
+    padding: 8px 20px;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: all 0.2s;
+  }
+
+  .currency-btn.active {
+    background: var(--green);
+    color: #000;
+  }
+
+  /* Status dot */
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: blink 2s ease-in-out infinite;
+  }
+
+  .status-dot.offline { background: var(--red); animation: none; }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .refresh-btn {
+    padding: 8px 16px;
+    background: none;
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .refresh-btn:hover {
+    border-color: var(--green);
+    color: var(--green);
+  }
+
+  .refresh-btn.spinning svg { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Main layout ── */
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 28px 32px;
+  }
+
+  .grid-top {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+
+  .grid-mid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+
+  .grid-bot {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border2) 50%, transparent);
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .card-title {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .exchange-badge {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+
+  .badge-bybit { background: #f7a600; color: #000; }
+  .badge-gate { background: #2354e6; color: #fff; }
+
+  /* Price display */
+  .price-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .price-item {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    transition: border-color 0.3s;
+  }
+
+  .price-item:hover { border-color: var(--border2); }
+
+  .price-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .price-label .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+
+  .dot-sell { background: var(--red); }
+  .dot-buy { background: var(--green); }
+
+  .price-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: -0.02em;
+  }
+
+  .price-value.loading {
+    color: var(--text-dim);
+    font-size: 16px;
+  }
+
+  .price-currency {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  .spread-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .spread-label {
+    font-size: 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .spread-value {
+    font-size: 18px;
+    font-weight: 700;
+    font-family: var(--mono);
+  }
+
+  .spread-positive { color: var(--green); text-shadow: var(--glow-green); }
+  .spread-negative { color: var(--red); }
+  .spread-neutral { color: var(--text-dim); }
+
+  /* ── Arbitrage section ── */
+  .arb-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  .arb-item {
+    padding: 18px 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 12px;
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  .arb-item:last-child { margin-bottom: 0; }
+
+  .arb-item.positive {
+    border-color: var(--green-mid);
+    background: var(--green-dim);
+  }
+
+  .arb-item.best {
+    border-color: var(--green);
+    background: var(--green-dim);
+    box-shadow: var(--glow-green);
+  }
+
+  .arb-item.best::before {
+    content: 'BEST OPPORTUNITY';
+    position: absolute;
+    top: 8px; right: 10px;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    font-weight: 700;
+  }
+
+  .arb-item.negative {
+    border-color: var(--border);
+    opacity: 0.6;
+  }
+
+  .arb-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .arb-path {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text-bright);
+  }
+
+  .arb-pct {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+  }
+
+  .arb-pct.positive { color: var(--green); text-shadow: var(--glow-green); }
+  .arb-pct.negative { color: var(--red); }
+
+  .arb-detail {
+    display: flex;
+    gap: 20px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .arb-detail span { display: flex; align-items: center; gap: 4px; }
+
+  /* Capital allocator */
+  .capital-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .capital-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+
+  .capital-input-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .capital-input {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 10px 14px;
+    color: var(--text-bright);
+    font-family: var(--mono);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .capital-input:focus { border-color: var(--green); }
+
+  .capital-result {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-top: 10px;
+  }
+
+  .capital-result .profit { color: var(--green); font-weight: 700; font-size: 16px; }
+
+  /* ── Chart ── */
+  .chart-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  .chart-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .chart-btn {
+    padding: 6px 14px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+  }
+
+  .chart-btn:hover, .chart-btn.active {
+    border-color: var(--green);
+    color: var(--green);
+  }
+
+  .chart-wrap { position: relative; height: 240px; }
+
+  /* ── Insights ── */
+  .insights-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  .insight-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .insight-item:last-child { border-bottom: none; padding-bottom: 0; }
+  .insight-item:first-child { padding-top: 0; }
+
+  .insight-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .icon-buy { background: var(--green-dim); border: 1px solid var(--green-mid); }
+  .icon-sell { background: var(--red-dim); border: 1px solid var(--red); }
+  .icon-vol { background: var(--yellow-dim); border: 1px solid var(--yellow); }
+  .icon-info { background: var(--blue-dim); border: 1px solid var(--blue); }
+
+  .insight-body {}
+
+  .insight-title {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-bottom: 4px;
+  }
+
+  .insight-desc {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  .insight-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--green);
+    margin-top: 4px;
+  }
+
+  /* ── Alerts Panel ── */
+  .alerts-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  .alert-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .alert-label {
+    font-size: 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .threshold-input {
+    width: 90px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text-bright);
+    font-family: var(--mono);
+    font-size: 14px;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .threshold-input:focus { border-color: var(--green); }
+
+  .toggle {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    cursor: pointer;
+  }
+
+  .toggle input { opacity: 0; width: 0; height: 0; }
+
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--border2);
+    border-radius: 12px;
+    transition: background 0.3s;
+  }
+
+  .toggle input:checked + .toggle-track { background: var(--green); }
+
+  .toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.3s;
+  }
+
+  .toggle input:checked ~ .toggle-thumb { transform: translateX(20px); }
+
+  .webhook-input {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 10px 14px;
+    color: var(--text-bright);
+    font-family: var(--mono);
+    font-size: 11px;
+    outline: none;
+    transition: border-color 0.2s;
+    margin-bottom: 14px;
+  }
+
+  .webhook-input:focus { border-color: var(--green); }
+
+  .save-btn {
+    width: 100%;
+    padding: 11px;
+    background: var(--green);
+    border: none;
+    border-radius: 6px;
+    color: #000;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+
+  .save-btn:hover { opacity: 0.85; }
+  .save-btn:active { opacity: 0.7; }
+
+  /* Alert fired */
+  .alert-fired {
+    background: var(--green-dim);
+    border: 1px solid var(--green-mid);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    color: var(--green);
+    display: none;
+    animation: slide-in 0.3s ease;
+  }
+
+  @keyframes slide-in {
+    from { transform: translateY(-10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  /* ── Hourly heatmap ── */
+  .heatmap-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+
+  .heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(24, 1fr);
+    gap: 3px;
+    margin-top: 14px;
+  }
+
+  .heatmap-cell {
+    aspect-ratio: 1;
+    border-radius: 3px;
+    background: var(--bg3);
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+
+  .heatmap-cell:hover { transform: scale(1.3); z-index: 10; }
+
+  .heatmap-label {
+    font-size: 9px;
+    color: var(--text-dim);
+    text-align: center;
+    margin-top: 4px;
+  }
+
+  /* ── Toast ── */
+  .toast-container {
+    position: fixed;
+    top: 80px;
+    right: 24px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .toast {
+    background: var(--bg3);
+    border: 1px solid var(--green-mid);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-size: 13px;
+    color: var(--text-bright);
+    animation: toast-in 0.3s ease;
+    max-width: 320px;
+    box-shadow: var(--glow-green);
+  }
+
+  .toast.error { border-color: var(--red); box-shadow: var(--glow-red); }
+
+  @keyframes toast-in {
+    from { transform: translateX(20px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  /* ── Timestamp ── */
+  .last-updated {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align: center;
+    padding: 20px;
+  }
+
+  /* ── Loader ── */
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg3) 25%, var(--border) 50%, var(--bg3) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 4px;
+    height: 28px;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  @media (max-width: 900px) {
+    .grid-top, .grid-mid, .grid-bot { grid-template-columns: 1fr; }
+    .heatmap-grid { grid-template-columns: repeat(12, 1fr); }
+    .container { padding: 16px; }
+    header { padding: 14px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark"></div>
+    <div class="logo-text">ARB<span>X</span> <span style="font-size:13px;color:var(--text-dim);font-weight:400">P2P Monitor</span></div>
+  </div>
+  <div class="header-right">
+    <div class="currency-toggle">
+      <button class="currency-btn active" data-cur="USDT" onclick="switchCurrency('USDT')">USDT</button>
+      <button class="currency-btn" data-cur="USDC" onclick="switchCurrency('USDC')">USDC</button>
+    </div>
+    <div class="status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">LIVE</span>
+    </div>
+    <button class="refresh-btn" onclick="forceRefresh()" id="refreshBtn">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+        <path d="M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+        <path d="M8 16H3v5"/>
+      </svg>
+      REFRESH
+    </button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- SECTION 1: Live Prices -->
+  <div class="grid-top">
+    <!-- Bybit Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Live Prices</div>
+        <span class="exchange-badge badge-bybit">BYBIT</span>
+      </div>
+      <div class="price-grid">
+        <div class="price-item">
+          <div class="price-label"><span class="dot dot-sell"></span>Lowest SELL</div>
+          <div class="price-value" id="bybit-sell">—</div>
+          <div class="price-currency">NGN / <span id="cur-label-1">USDT</span></div>
+        </div>
+        <div class="price-item">
+          <div class="price-label"><span class="dot dot-buy"></span>Highest BUY</div>
+          <div class="price-value" id="bybit-buy">—</div>
+          <div class="price-currency">NGN / <span id="cur-label-2">USDT</span></div>
+        </div>
+      </div>
+      <div class="spread-row">
+        <span class="spread-label">Internal Spread</span>
+        <span class="spread-value spread-neutral" id="bybit-spread">—</span>
+      </div>
+    </div>
+
+    <!-- Gate Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Live Prices</div>
+        <span class="exchange-badge badge-gate">GATE.IO</span>
+      </div>
+      <div class="price-grid">
+        <div class="price-item">
+          <div class="price-label"><span class="dot dot-sell"></span>Lowest SELL</div>
+          <div class="price-value" id="gate-sell">—</div>
+          <div class="price-currency">NGN / <span id="cur-label-3">USDT</span></div>
+        </div>
+        <div class="price-item">
+          <div class="price-label"><span class="dot dot-buy"></span>Highest BUY</div>
+          <div class="price-value" id="gate-buy">—</div>
+          <div class="price-currency">NGN / <span id="cur-label-4">USDT</span></div>
+        </div>
+      </div>
+      <div class="spread-row">
+        <span class="spread-label">Internal Spread</span>
+        <span class="spread-value spread-neutral" id="gate-spread">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 2: Arbitrage Opportunities -->
+  <div class="grid-mid">
+    <div class="arb-card">
+      <div class="card-header">
+        <div class="card-title">Cross-Exchange Arbitrage</div>
+        <span style="font-size:11px;color:var(--text-dim)">NGN PAIR</span>
+      </div>
+      <div id="arb-container">
+        <div class="arb-item">
+          <div class="arb-top">
+            <div class="arb-path">Loading opportunities...</div>
+            <div class="arb-pct neutral">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="capital-section">
+        <div class="capital-label">Smart Capital Allocator</div>
+        <div class="capital-input-row">
+          <input type="number" class="capital-input" id="capitalInput" placeholder="Enter NGN amount" value="100000" oninput="calcProfit()">
+        </div>
+        <div class="capital-result" id="profitResult">Enter an amount to see estimated profit</div>
+      </div>
+    </div>
+
+    <!-- Alerts Panel -->
+    <div class="alerts-card">
+      <div class="card-header">
+        <div class="card-title">Alert Settings</div>
+        <label class="toggle">
+          <input type="checkbox" id="alertToggle" checked onchange="saveAlerts()">
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+
+      <div id="alertFired" class="alert-fired">
+        🚨 Arbitrage threshold triggered!
+      </div>
+
+      <div class="alert-row">
+        <span class="alert-label">Threshold %</span>
+        <input type="number" class="threshold-input" id="thresholdInput" value="1.5" step="0.1" min="0.1">
+      </div>
+
+      <div class="alert-label" style="margin-bottom:8px">Telegram Webhook (optional)</div>
+      <input type="text" class="webhook-input" id="webhookInput" placeholder="https://api.telegram.org/bot.../sendMessage?chat_id=...">
+      <button class="save-btn" onclick="saveAlerts()">SAVE ALERT CONFIG</button>
+
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+        <div class="card-title" style="margin-bottom:12px">Opportunity Log</div>
+        <div id="alertLog" style="font-size:11px;color:var(--text-dim);max-height:120px;overflow-y:auto;line-height:1.8">
+          Waiting for data...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 3: Chart -->
+  <div class="grid-bot">
+    <div class="chart-card">
+      <div class="card-header">
+        <div class="card-title">Price History (24H)</div>
+        <div class="chart-controls">
+          <button class="chart-btn active" onclick="switchChart('sell')" id="btnSell">SELL</button>
+          <button class="chart-btn" onclick="switchChart('buy')" id="btnBuy">BUY</button>
+          <button class="chart-btn" onclick="switchChart('spread')" id="btnSpread">SPREAD</button>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="mainChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Time Insights -->
+    <div class="insights-card">
+      <div class="card-header">
+        <div class="card-title">Time Insights</div>
+      </div>
+
+      <div class="insight-item">
+        <div class="insight-icon icon-buy">📉</div>
+        <div class="insight-body">
+          <div class="insight-title">Best Hour to BUY</div>
+          <div class="insight-desc">Historically lowest sell prices</div>
+          <div class="insight-value" id="bestBuyHour">—:00</div>
+        </div>
+      </div>
+
+      <div class="insight-item">
+        <div class="insight-icon icon-sell">📈</div>
+        <div class="insight-body">
+          <div class="insight-title">Best Hour to SELL</div>
+          <div class="insight-desc">Historically highest buy prices</div>
+          <div class="insight-value" id="bestSellHour">—:00</div>
+        </div>
+      </div>
+
+      <div class="insight-item">
+        <div class="insight-icon icon-info">📊</div>
+        <div class="insight-body">
+          <div class="insight-title">Data Points (24H)</div>
+          <div class="insight-desc">Snapshots collected this session</div>
+          <div class="insight-value" id="dataPoints">0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hourly Heatmap -->
+  <div class="heatmap-card">
+    <div class="card-header">
+      <div class="card-title">Hourly Activity Heatmap</div>
+      <span style="font-size:11px;color:var(--text-dim)">Hover for price</span>
+    </div>
+    <div class="heatmap-grid" id="heatmapGrid"></div>
+    <div style="display:flex;gap:4px;margin-top:8px">
+      <span style="font-size:10px;color:var(--text-dim)">00h</span>
+      <div style="flex:1"></div>
+      <span style="font-size:10px;color:var(--text-dim)">23h</span>
+    </div>
+  </div>
+
+  <div class="last-updated" id="lastUpdated">Connecting to data feed...</div>
+
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+let currentCurrency = 'USDT';
+let liveData = null;
+let historyData = [];
+let analyticsData = null;
+let alertConfig = { threshold: 1.5, enabled: true, telegram_webhook: '' };
+let chartMode = 'sell';
+let mainChart = null;
+let alertLog = [];
+const API = window.location.origin;
+
+// ── Chart Setup ────────────────────────────────────────────────────────────────
+function initChart() {
+  const ctx = document.getElementById('mainChart').getContext('2d');
+  mainChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: 'Bybit',
+          data: [],
+          borderColor: '#f7a600',
+          backgroundColor: 'rgba(247,166,0,0.05)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.4,
+          fill: true
+        },
+        {
+          label: 'Gate',
+          data: [],
+          borderColor: '#2354e6',
+          backgroundColor: 'rgba(35,84,230,0.05)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.4,
+          fill: true
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 300 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          labels: {
+            color: '#5a7a8a',
+            font: { family: "'Space Mono', monospace", size: 11 },
+            boxWidth: 12, boxHeight: 12, padding: 16
+          }
+        },
+        tooltip: {
+          backgroundColor: '#0d1318',
+          borderColor: '#1e2d38',
+          borderWidth: 1,
+          titleColor: '#c8dde8',
+          bodyColor: '#c8dde8',
+          titleFont: { family: "'Space Mono', monospace", size: 11 },
+          bodyFont: { family: "'Space Mono', monospace", size: 12 },
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ₦${Number(ctx.raw).toLocaleString()}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: '#1e2d38' },
+          ticks: { color: '#5a7a8a', font: { family: "'Space Mono', monospace", size: 10 }, maxTicksLimit: 8 }
+        },
+        y: {
+          grid: { color: '#1e2d38' },
+          ticks: {
+            color: '#5a7a8a',
+            font: { family: "'Space Mono', monospace", size: 10 },
+            callback: v => '₦' + Number(v).toLocaleString()
+          }
+        }
+      }
+    }
+  });
+}
+
+// ── Fetch Live Data ────────────────────────────────────────────────────────────
+async function fetchLive() {
+  try {
+    const res = await fetch(`${API}/api/live/${currentCurrency}`);
+    const json = await res.json();
+    if (json.success) {
+      liveData = json.data;
+      updateLivePrices();
+      checkAlertThreshold();
+    }
+  } catch (e) {
+    setOffline();
+  }
+}
+
+async function fetchHistory() {
+  try {
+    const res = await fetch(`${API}/api/history?currency=${currentCurrency}&hours=24`);
+    const json = await res.json();
+    if (json.success) {
+      historyData = json.data;
+      updateChart();
+    }
+  } catch (e) {}
+}
+
+async function fetchAnalytics() {
+  try {
+    const res = await fetch(`${API}/api/analytics/${currentCurrency}`);
+    const json = await res.json();
+    if (json.success) {
+      analyticsData = json.data;
+      updateInsights();
+      updateHeatmap();
+    }
+  } catch (e) {}
+}
+
+async function fetchAlertConfig() {
+  try {
+    const res = await fetch(`${API}/api/alerts`);
+    const json = await res.json();
+    if (json.success && json.data) {
+      alertConfig = json.data;
+      document.getElementById('thresholdInput').value = alertConfig.threshold || 1.5;
+      document.getElementById('alertToggle').checked = alertConfig.enabled === 1;
+      document.getElementById('webhookInput').value = alertConfig.telegram_webhook || '';
+    }
+  } catch (e) {}
+}
+
+// ── Update UI ──────────────────────────────────────────────────────────────────
+function fmt(n) {
+  if (!n) return '—';
+  return Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function updateLivePrices() {
+  if (!liveData) return;
+  const { bybit, gate, opportunities } = liveData;
+
+  // Bybit
+  document.getElementById('bybit-sell').textContent = bybit.lowestSell ? fmt(bybit.lowestSell) : 'No data';
+  document.getElementById('bybit-buy').textContent = bybit.highestBuy ? fmt(bybit.highestBuy) : 'No data';
+
+  const bSpread = document.getElementById('bybit-spread');
+  if (bybit.spreadPct !== null) {
+    bSpread.textContent = `${bybit.spreadPct > 0 ? '+' : ''}${bybit.spreadPct}%`;
+    bSpread.className = `spread-value ${bybit.spreadPct > 0 ? 'spread-positive' : 'spread-negative'}`;
+  }
+
+  // Gate
+  document.getElementById('gate-sell').textContent = gate.lowestSell ? fmt(gate.lowestSell) : 'No data';
+  document.getElementById('gate-buy').textContent = gate.highestBuy ? fmt(gate.highestBuy) : 'No data';
+
+  const gSpread = document.getElementById('gate-spread');
+  if (gate.spreadPct !== null) {
+    gSpread.textContent = `${gate.spreadPct > 0 ? '+' : ''}${gate.spreadPct}%`;
+    gSpread.className = `spread-value ${gate.spreadPct > 0 ? 'spread-positive' : 'spread-negative'}`;
+  }
+
+  // Arb opportunities
+  updateArbSection(opportunities);
+
+  // Update currency labels
+  ['1','2','3','4'].forEach(i => {
+    const el = document.getElementById(`cur-label-${i}`);
+    if (el) el.textContent = currentCurrency;
+  });
+
+  // Timestamp
+  document.getElementById('lastUpdated').textContent =
+    `Last updated: ${new Date(liveData.timestamp).toLocaleTimeString()} · Auto-refresh every 5s`;
+
+  setOnline();
+}
+
+function updateArbSection(opportunities) {
+  if (!opportunities || opportunities.length === 0) {
+    document.getElementById('arb-container').innerHTML =
+      '<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:13px">No arbitrage data available yet</div>';
+    return;
+  }
+
+  let html = '';
+  opportunities.forEach((opp, i) => {
+    const isPositive = opp.pct > 0;
+    const isBest = i === 0 && isPositive;
+    const cls = isBest ? 'best' : (isPositive ? 'positive' : 'negative');
+    const pctCls = isPositive ? 'positive' : 'negative';
+    const sign = opp.pct > 0 ? '+' : '';
+
+    html += `
+      <div class="arb-item ${cls}" onclick="selectOpp(${opp.pct})">
+        <div class="arb-top">
+          <div class="arb-path">${opp.path}</div>
+          <div class="arb-pct ${pctCls}">${sign}${opp.pct}%</div>
+        </div>
+        <div class="arb-detail">
+          <span>🟢 Buy @ ₦${fmt(opp.buyPrice)}</span>
+          <span>🔴 Sell @ ₦${fmt(opp.sellPrice)}</span>
+        </div>
+      </div>
+    `;
+  });
+
+  document.getElementById('arb-container').innerHTML = html;
+  calcProfit();
+
+  // Log
+  const best = opportunities[0];
+  if (best && best.pct > 0) {
+    const entry = `${new Date().toLocaleTimeString()} · ${best.path}: +${best.pct}%`;
+    alertLog.unshift(entry);
+    alertLog = alertLog.slice(0, 20);
+    document.getElementById('alertLog').innerHTML = alertLog.join('<br>') || 'No profitable opportunities yet';
+  }
+}
+
+function selectOpp(pct) {
+  // Highlight and calculate for selected opportunity
+  calcProfit(pct);
+}
+
+function calcProfit(overridePct = null) {
+  const amount = parseFloat(document.getElementById('capitalInput').value) || 0;
+  if (!amount || amount <= 0) {
+    document.getElementById('profitResult').innerHTML = 'Enter a valid NGN amount';
+    return;
+  }
+
+  let bestPct = overridePct;
+  if (bestPct === null && liveData?.opportunities?.length > 0) {
+    bestPct = liveData.opportunities[0].pct;
+  }
+
+  if (!bestPct || bestPct <= 0) {
+    document.getElementById('profitResult').innerHTML = 'No profitable opportunity found';
+    return;
+  }
+
+  const profit = amount * (bestPct / 100);
+  const after = amount + profit;
+
+  document.getElementById('profitResult').innerHTML = `
+    Capital: ₦${fmt(amount)} → After: ₦${fmt(after)}<br>
+    Estimated profit: <span class="profit">+₦${fmt(profit)}</span> (${bestPct}%)
+    <br><span style="font-size:10px;color:var(--text-dim)">*Before fees. Verify slippage before trading.</span>
+  `;
+}
+
+// ── Chart ──────────────────────────────────────────────────────────────────────
+function updateChart() {
+  if (!mainChart || !historyData.length) return;
+
+  const bybitRows = historyData.filter(r => r.exchange === 'bybit');
+  const gateRows = historyData.filter(r => r.exchange === 'gate');
+
+  const getField = (row) => {
+    if (chartMode === 'sell') return row.lowest_sell;
+    if (chartMode === 'buy') return row.highest_buy;
+    return row.spread_pct;
+  };
+
+  const labels = bybitRows.map(r => new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+
+  mainChart.data.labels = labels;
+  mainChart.data.datasets[0].data = bybitRows.map(getField);
+  mainChart.data.datasets[1].data = gateRows.slice(0, labels.length).map(getField);
+
+  if (chartMode === 'spread') {
+    mainChart.data.datasets[0].label = 'Bybit Spread %';
+    mainChart.data.datasets[1].label = 'Gate Spread %';
+    mainChart.options.scales.y.ticks.callback = v => v + '%';
+  } else {
+    mainChart.data.datasets[0].label = 'Bybit';
+    mainChart.data.datasets[1].label = 'Gate';
+    mainChart.options.scales.y.ticks.callback = v => '₦' + Number(v).toLocaleString();
+  }
+
+  mainChart.update('none');
+}
+
+function switchChart(mode) {
+  chartMode = mode;
+  ['sell','buy','spread'].forEach(m => {
+    const btn = document.getElementById(`btn${m.charAt(0).toUpperCase() + m.slice(1)}`);
+    btn.classList.toggle('active', m === mode);
+  });
+  updateChart();
+}
+
+// ── Insights & Heatmap ─────────────────────────────────────────────────────────
+function updateInsights() {
+  if (!analyticsData) return;
+  const { insights } = analyticsData;
+
+  const fmtHour = h => h !== null ? `${String(h).padStart(2,'0')}:00` : '—:00';
+  document.getElementById('bestBuyHour').textContent = fmtHour(insights.bestBuyHour);
+  document.getElementById('bestSellHour').textContent = fmtHour(insights.bestSellHour);
+  document.getElementById('dataPoints').textContent = insights.totalDataPoints;
+}
+
+function updateHeatmap() {
+  if (!analyticsData) return;
+  const { hourlyStats } = analyticsData;
+  const grid = document.getElementById('heatmapGrid');
+
+  const maxPts = Math.max(...hourlyStats.map(h => h.dataPoints), 1);
+
+  let html = '';
+  for (let h = 0; h < 24; h++) {
+    const stat = hourlyStats[h] || { dataPoints: 0 };
+    const intensity = stat.dataPoints / maxPts;
+    const g = Math.round(intensity * 200);
+    const color = stat.dataPoints > 0 ? `rgba(0,${g + 55},${Math.round(g * 0.5)},${0.3 + intensity * 0.7})` : '#111920';
+    const avgSell = stat.bybit?.avgSell || stat.gate?.avgSell;
+    const tip = avgSell ? `${h}:00 · ₦${fmt(avgSell)}` : `${h}:00 · No data`;
+
+    html += `<div class="heatmap-cell" style="background:${color}" title="${tip}"></div>`;
+  }
+
+  grid.innerHTML = html;
+}
+
+// ── Alerts ─────────────────────────────────────────────────────────────────────
+function checkAlertThreshold() {
+  if (!liveData || !alertConfig.enabled) return;
+  const threshold = alertConfig.threshold || 1.5;
+  const best = liveData.opportunities?.[0];
+  if (!best || best.pct < threshold) return;
+
+  const fired = document.getElementById('alertFired');
+  fired.textContent = `🚨 ${best.path}: +${best.pct}% exceeds ${threshold}% threshold`;
+  fired.style.display = 'block';
+
+  // Browser notification
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification('ARBX Alert', {
+      body: `${best.path}: +${best.pct}% · Buy ₦${fmt(best.buyPrice)} → Sell ₦${fmt(best.sellPrice)}`,
+      icon: '/favicon.ico'
+    });
+  } else if (Notification.permission !== 'denied') {
+    Notification.requestPermission();
+  }
+
+  showToast(`🚨 Arb Alert: ${best.path} = +${best.pct}%`, 'success');
+}
+
+async function saveAlerts() {
+  const threshold = parseFloat(document.getElementById('thresholdInput').value) || 1.5;
+  const enabled = document.getElementById('alertToggle').checked;
+  const webhook = document.getElementById('webhookInput').value.trim();
+
+  try {
+    await fetch(`${API}/api/alerts`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threshold, enabled, telegram_webhook: webhook })
+    });
+    alertConfig = { threshold, enabled, telegram_webhook: webhook };
+    showToast('Alert config saved ✓');
+  } catch (e) {
+    showToast('Failed to save config', 'error');
+  }
+}
+
+// ── Utility ────────────────────────────────────────────────────────────────────
+function switchCurrency(cur) {
+  currentCurrency = cur;
+  document.querySelectorAll('.currency-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.cur === cur);
+  });
+  fetchLive();
+  fetchHistory();
+  fetchAnalytics();
+}
+
+async function forceRefresh() {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+  try {
+    const res = await fetch(`${API}/api/refresh/${currentCurrency}`, { method: 'POST' });
+    const json = await res.json();
+    if (json.success) {
+      liveData = json.data;
+      updateLivePrices();
+      showToast('Data refreshed ✓');
+    }
+  } catch (e) {
+    showToast('Refresh failed', 'error');
+  } finally {
+    setTimeout(() => btn.classList.remove('spinning'), 800);
+  }
+}
+
+function setOnline() {
+  document.getElementById('statusDot').className = 'status-dot';
+  document.getElementById('statusText').textContent = 'LIVE';
+}
+
+function setOffline() {
+  document.getElementById('statusDot').className = 'status-dot offline';
+  document.getElementById('statusText').textContent = 'OFFLINE';
+  showToast('Cannot reach API server', 'error');
+}
+
+function showToast(msg, type = 'success') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type === 'error' ? 'error' : ''}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+// ── Polling ────────────────────────────────────────────────────────────────────
+function startPolling() {
+  fetchLive();
+  fetchHistory();
+  fetchAnalytics();
+  fetchAlertConfig();
+
+  setInterval(fetchLive, 5000);
+  setInterval(fetchHistory, 60000);
+  setInterval(fetchAnalytics, 120000);
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initChart();
+  startPolling();
+
+  // Request notification permission
+  if ('Notification' in window) {
+    Notification.requestPermission();
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+node_modules/
+arb_data.db
+.env
+*.log
